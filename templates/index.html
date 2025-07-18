@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>🌿 Smart Irrigation Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: #f0f8f5;
+      text-align: center;
+      padding: 30px;
+      color: #2e7d32;
+    }
+    h1 { margin-bottom: 5px; }
+    .card {
+      background: #fff;
+      padding: 20px;
+      border-radius: 15px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      margin: 20px auto;
+      max-width: 600px;
+    }
+    .card p span { font-weight: bold; color: #1b5e20; }
+    .controls button {
+      margin: 5px;
+      padding: 10px 20px;
+      background: #43a047;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .controls button:hover {
+      background: #2e7d32;
+    }
+    .chart-container {
+      background: #fff;
+      padding: 20px;
+      border-radius: 15px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      max-width: 800px;
+      margin: 30px auto;
+    }
+    .chart-toggle label {
+      margin: 0 10px;
+      font-size: 0.9rem;
+    }
+    select {
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      margin: 10px;
+    }
+    .recommendation {
+      margin-top: 15px;
+      font-weight: bold;
+      color: #1b5e20;
+    }
+  </style>
+</head>
+<body>
+  <h1>🌱 Smart Irrigation System</h1>
+  <p id="connectionStatus" style="color: gray;">Connecting to ESP8266...</p>
+  <p>Live Sensor Monitoring with AI Integration</p>
+
+  <div class="card">
+    <p><i data-lucide="cloud-rain"></i> Rain Intensity: <span id="rain">--</span>%</p>
+    <p><i data-lucide="droplet"></i> Soil Moisture: <span id="soil">--</span>%</p>
+    <p><i data-lucide="thermometer"></i> Temperature: <span id="temp">--</span> °C</p>
+    <p><i data-lucide="wind"></i> Humidity: <span id="hum">--</span>%</p>
+    <p><i data-lucide="settings"></i> Mode: <span id="mode">--</span></p>
+    <p><i data-lucide="power"></i> Pump State: <span id="action">--</span></p>
+
+    <select id="regionSelect"></select>
+    <select id="cropSelect"></select>
+    <br>
+    <button onclick="predictWater()">💧 Predict Water Requirement</button>
+
+    <p><i data-lucide="droplets"></i> Predicted Water: <span id="predicted">--</span> ml</p>
+    <p style="font-weight: bold; color: red; font-size: 0.9rem;">*For 1 sq. meter area</p>
+
+
+    <p class="recommendation" id="recommendation"></p>
+    <ul id="contextNotes" style="text-align:left; padding-left: 40px;"></ul>
+  </div>
+
+  <div class="controls">
+    <button onclick="sendCommand('ON')">Pump ON</button>
+    <button onclick="sendCommand('OFF')">Pump OFF</button>
+    <button onclick="sendCommand(null)">Reset AI</button>
+    <button onclick="toggleMode()">🔁 Switch Mode</button>
+  </div>
+
+  <div class="chart-container">
+    <div class="chart-toggle">
+      <label><input type="checkbox" checked onchange="toggleDataset(0)"> Rain</label>
+      <label><input type="checkbox" checked onchange="toggleDataset(1)"> Soil</label>
+      <label><input type="checkbox" checked onchange="toggleDataset(2)"> Temp</label>
+      <label><input type="checkbox" checked onchange="toggleDataset(3)"> Hum</label>
+    </div>
+    <canvas id="sensorChart"></canvas>
+    <div style="margin-top: 15px;">
+      <button onclick="downloadChart()">📸 Download Chart</button>
+      <button onclick="downloadCSV()">📄 Download CSV</button>
+    </div>
+  </div>
+
+  <script id="regions-data" type="application/json">{{ regions | tojson }}</script>
+  <script id="crops-data" type="application/json">{{ crops | tojson }}</script>
+
+  <script>
+    lucide.createIcons();
+
+    const regions = JSON.parse(document.getElementById('regions-data').textContent);
+    const crops = JSON.parse(document.getElementById('crops-data').textContent);
+
+    window.onload = () => {
+      const regionSelect = document.getElementById('regionSelect');
+      const cropSelect = document.getElementById('cropSelect');
+      regions.forEach(r => {
+        let option = document.createElement('option');
+        option.value = r;
+        option.textContent = r;
+        regionSelect.appendChild(option);
+      });
+      crops.forEach(c => {
+        let option = document.createElement('option');
+        option.value = c;
+        option.textContent = c;
+        cropSelect.appendChild(option);
+      });
+    };
+
+    const ctx = document.getElementById('sensorChart').getContext('2d');
+    const sensorChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Rain', data: [], borderColor: '#1e88e5', fill: false },
+          { label: 'Soil', data: [], borderColor: '#43a047', fill: false },
+          { label: 'Temp', data: [], borderColor: '#e53935', fill: false },
+          { label: 'Humidity', data: [], borderColor: '#8e24aa', fill: false }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: true } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    function updateDashboard() {
+      fetch('/data')
+        .then(res => res.json())
+        .then(data => {
+          document.getElementById('rain').textContent = data.rain;
+          document.getElementById('soil').textContent = data.soil;
+          document.getElementById('temp').textContent = data.temp;
+          document.getElementById('hum').textContent = data.hum;
+          document.getElementById('action').textContent = data.action;
+          document.getElementById('mode').textContent = data.mode.toUpperCase();
+          document.getElementById('predicted').textContent = data.predicted;
+
+          document.getElementById('connectionStatus').textContent = "✅ ESP Connected";
+          document.getElementById('connectionStatus').style.color = "green";
+
+          const now = new Date().toLocaleTimeString();
+          sensorChart.data.labels.push(now);
+          sensorChart.data.datasets[0].data.push(data.rain);
+          sensorChart.data.datasets[1].data.push(data.soil);
+          sensorChart.data.datasets[2].data.push(data.temp);
+          sensorChart.data.datasets[3].data.push(data.hum);
+
+          if (sensorChart.data.labels.length > 10) {
+            sensorChart.data.labels.shift();
+            sensorChart.data.datasets.forEach(ds => ds.data.shift());
+          }
+          sensorChart.update();
+        })
+        .catch(() => {
+          document.getElementById('connectionStatus').textContent = "❌ ESP Disconnected";
+          document.getElementById('connectionStatus').style.color = "red";
+        });
+    }
+    function checkESPConnection() {
+    fetch('/get_data', { method: 'GET', cache: 'no-store' })
+    .then(response => {
+      if (!response.ok) throw new Error("No response");
+      return response.json();
+    })
+    .then(() => {
+      const status = document.getElementById('connectionStatus');
+      status.textContent = "✅ ESP Connected";
+      status.style.color = "green";
+    })
+    .catch(() => {
+      const status = document.getElementById('connectionStatus');
+      status.textContent = "❌ ESP Disconnected";
+      status.style.color = "red";
+    });
+    }
+
+    function predictWater() {
+      const soil = parseFloat(document.getElementById('soil').textContent);
+      const ph = 6.5;
+      const temp = parseFloat(document.getElementById('temp').textContent);
+      const rain = parseFloat(document.getElementById('rain').textContent);
+      const hum = parseFloat(document.getElementById('hum').textContent);
+      const sunlight = 6.0;
+      const region = document.getElementById('regionSelect').value;
+      const crop = document.getElementById('cropSelect').value;
+
+      fetch('/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ soil_moisture: soil, soil_ph: ph, temperature: temp, rainfall: rain, humidity: hum, sunlight: sunlight, region: region, crop: crop })
+      })
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          document.getElementById('predicted').textContent = result.water_needed;
+          document.getElementById('recommendation').textContent = result.recommendation;
+
+          const notesList = document.getElementById('contextNotes');
+          notesList.innerHTML = '';
+          result.context_notes.forEach(note => {
+            let li = document.createElement('li');
+            li.textContent = note;
+            notesList.appendChild(li);
+          });
+        } else {
+          alert(result.error);
+        }
+      });
+    }
+
+    function sendCommand(cmd) {
+    fetch('/control', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: cmd })
+    })
+    .then(() => updateDashboard());  // ✅ immediately update after command
+    }
+
+
+    function toggleDataset(index) {
+      const meta = sensorChart.getDatasetMeta(index);
+      meta.hidden = meta.hidden === null ? !sensorChart.data.datasets[index].hidden : null;
+      sensorChart.update();
+    }
+
+    function downloadChart() {
+      const link = document.createElement('a');
+      link.download = 'sensor_chart.png';
+      link.href = document.getElementById('sensorChart').toDataURL('image/png');
+      link.click();
+    }
+
+    function downloadCSV() {
+      const labels = sensorChart.data.labels;
+      const rain = sensorChart.data.datasets[0].data;
+      const soil = sensorChart.data.datasets[1].data;
+      const temp = sensorChart.data.datasets[2].data;
+      const hum = sensorChart.data.datasets[3].data;
+
+      let csv = 'Time,Rain,Soil,Temperature,Humidity\n';
+      for (let i = 0; i < labels.length; i++) {
+        csv += `${labels[i]},${rain[i] || ''},${soil[i] || ''},${temp[i] || ''},${hum[i] || ''}\n`;
+      }
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', 'sensor_data.csv');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function toggleMode() {
+      fetch('/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'TOGGLE_MODE' })
+      })
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('mode').textContent = data.mode.toUpperCase();
+      });
+    }
+
+    setInterval(updateDashboard, 3100);
+    updateDashboard();
+  </script>
+</body>
+</html>
