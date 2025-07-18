@@ -4,8 +4,8 @@
 #include <ArduinoJson.h>
 
 // WiFi credentials
-const char* ssid = "Avi's Nord 5G";
-const char* password = "Avi@9322564784";
+const char* ssid = "WIFI NAME";
+const char* password = "PASSWORD";
 
 // Flask server URLs
 const String dataURL = "http://10.249.165.189:5000/esp_data";
