@@ -8,8 +8,8 @@ const char* ssid = "WIFI NAME";
 const char* password = "PASSWORD";
 
 // Flask server URLs
-const String dataURL = "http://10.249.165.189:5000/esp_data";
-const String commandURL = "http://10.249.165.189:5000/esp_command";
+const String dataURL = "http://../esp_data";
+const String commandURL = "http://../esp_command";
 
 // Pin configuration (adjust if needed)
 #define DHTPIN 15            // GPIO15
